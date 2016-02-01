@@ -64,22 +64,30 @@ action :join do
     
     powershell_script 'ad-join' do
       code <<-EOH
-      $adminname = "#{domain}\\#{domain_user}"
-      $password = "#{domain_password}" | ConvertTo-SecureString -asPlainText -Force
+      $domainName = '#{domain}'
+      $adminname = '#{domain}\#{domain_user}'
+      $password = '#{domain_password}' | ConvertTo-SecureString -asPlainText -Force
       $credential = New-Object System.Management.Automation.PSCredential($adminname,$password)
+      $ouPath = '#{ou}'
+      $newComputerName = '#{newcomputername}'
       
-      if ( '#{newcomputername}' -eq $(hostname) ) {
-        Write-Host "Skipping computer rename since already named: #{newcomputername}"
+      if ($newComputerName -eq $(hostname) ) {
+        Write-Host "Skipping computer rename since already named: $newComputerName"
       }
       else {
-        Write-Host "Renaming computer from $($hostname) to #{newcomputername}"
-        Rename-Computer -NewName '#{newcomputername}'
+        Write-Host "Renaming computer from $($hostname) to $newComputerName"
+        Rename-Computer -NewName $newComputerName
+        Sleep 5
       }
-      sleep 5
-      Add-computer -DomainName #{domain} -OUPath "#{ou}" -Credential $credential -force -Options JoinWithNewName,AccountCreate -PassThru #-Restart
+      
+      if ($ouPath) {
+        Add-computer -DomainName $domainName -OUPath $ouPath -Credential $credential -force -Options JoinWithNewName,AccountCreate -PassThru #-Restart
+      } else {
+        Add-computer -DomainName $domainName -Credential $credential -force -Options JoinWithNewName,AccountCreate -PassThru #-Restart
+      }
 
       # Old way, somtimes Domain controller busy error occured
-      # Add-Computer  #{newcomputername} -DomainName #{domain} -OUPath #{ou} -Credential $credential -Restart -PassThru
+      # Add-Computer  $newComputerName -DomainName $domainName -OUPath $ouPath -Credential $credential -Restart -PassThru
       # Add-Computer -ComputerName Server01 -LocalCredential Server01\Admin01 -DomainName Domain02 -Credential Domain02\Admin02 -Restart -Force
       EOH
       only_if { node['kernel']['cs_info']['domain_role'].to_i == 0 || node['kernel']['cs_info']['domain_role'].to_i == 2 }
