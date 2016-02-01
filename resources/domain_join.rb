@@ -51,17 +51,6 @@ action :join do
       action :nothing
     end
     
-    # Installs task for chef-client run after reboot, needed for ohai reload
-    windows_task 'chef ad-join' do
-      user 'SYSTEM'
-      command 'chef-client -L C:\chef\chef-ad-join.log'
-      run_level :highest
-      frequency :onstart
-      notifies :create, 'registry_key[warning]', :immediately
-      only_if { node['kernel']['cs_info']['domain_role'].to_i == 0 || node['kernel']['cs_info']['domain_role'].to_i == 2 }
-      action :create
-    end
-    
     powershell_script 'ad-join' do
       code <<-EOH
       $domainName = '#{domain}'
@@ -71,26 +60,33 @@ action :join do
       $ouPath = '#{ou}'
       $newComputerName = '#{newcomputername}'
       
-      if ($newComputerName -eq $(hostname) ) {
-        Write-Host "Skipping computer rename since already named: $newComputerName"
-      }
-      else {
-        Write-Host "Renaming computer from $($hostname) to $newComputerName"
-        Rename-Computer -NewName $newComputerName
-        Sleep 5
-      }
-      
-      if ($ouPath) {
-        Add-computer -DomainName $domainName -OUPath $ouPath -Credential $credential -force -Options JoinWithNewName,AccountCreate -PassThru #-Restart
-      } else {
-        Add-computer -DomainName $domainName -Credential $credential -force -Options JoinWithNewName,AccountCreate -PassThru #-Restart
-      }
+      $ComputerSystem = gwmi win32_computersystem
 
-      # Old way, somtimes Domain controller busy error occured
-      # Add-Computer  $newComputerName -DomainName $domainName -OUPath $ouPath -Credential $credential -Restart -PassThru
-      # Add-Computer -ComputerName Server01 -LocalCredential Server01\\Admin01 -DomainName Domain02 -Credential Domain02\\Admin02 -Restart -Force
+      if (!($ComputerSystem.Name -eq $newComputerName -and $ComputerSystem.Domain -eq $domainName)){
+        if ($newComputerName -eq $(hostname) ) {
+          Write-Host "Skipping computer rename since already named: $newComputerName"
+        }
+        else {
+          Write-Host "Renaming computer from $($hostname) to $newComputerName"
+          Rename-Computer -NewName $newComputerName
+          Sleep 5
+        }
+        
+        if ($ouPath) {
+          Add-computer -DomainName $domainName -OUPath $ouPath -Credential $credential -force -Options JoinWithNewName,AccountCreate -PassThru #-Restart
+        } else {
+          Add-computer -DomainName $domainName -Credential $credential -force -Options JoinWithNewName,AccountCreate -PassThru #-Restart
+        }
+      } else {
+        Write-Host "Computer: $($hostname) already member of domain: $domainName"          
+      }
       EOH
-      only_if { node['kernel']['cs_info']['domain_role'].to_i == 0 || node['kernel']['cs_info']['domain_role'].to_i == 2 }
+
+      not_if <<-EOH
+      $ComputerSystem = gwmi win32_computersystem
+      (($ComputerSystem.Name -like '#{newcomputername}') -and ($ComputerSystem.partofdomain) -and ($ComputerSystem.Domain -eq '#{domain}'))
+      EOH
+
       notifies :reboot_now, 'reboot[Restart Computer]', :immediately
     end
     
@@ -107,6 +103,16 @@ action :join do
       action :delete
       notifies :delete, 'registry_key[warning]', :delayed
     end   
+
+    registry_key 'remove_warning' do
+      key warning_key
+      values [
+        {:name => 'legalnoticecaption', :type => :string, :data => ""},
+        {:name => 'legalnoticetext', :type => :string, :data => ""}
+      ]
+      only_if { node['ad-join']['windows']['visual_warning'] == true }
+      action :nothing
+    end
 
   when 'linux'
     #TODO implement linux support
