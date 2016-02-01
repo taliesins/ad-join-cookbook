@@ -65,7 +65,7 @@ action :join do
     powershell_script 'ad-join' do
       code <<-EOH
       $domainName = '#{domain}'
-      $adminname = '#{domain}\#{domain_user}'
+      $adminname = '#{domain}\\#{domain_user}'
       $password = '#{domain_password}' | ConvertTo-SecureString -asPlainText -Force
       $credential = New-Object System.Management.Automation.PSCredential($adminname,$password)
       $ouPath = '#{ou}'
@@ -88,7 +88,7 @@ action :join do
 
       # Old way, somtimes Domain controller busy error occured
       # Add-Computer  $newComputerName -DomainName $domainName -OUPath $ouPath -Credential $credential -Restart -PassThru
-      # Add-Computer -ComputerName Server01 -LocalCredential Server01\Admin01 -DomainName Domain02 -Credential Domain02\Admin02 -Restart -Force
+      # Add-Computer -ComputerName Server01 -LocalCredential Server01\\Admin01 -DomainName Domain02 -Credential Domain02\\Admin02 -Restart -Force
       EOH
       only_if { node['kernel']['cs_info']['domain_role'].to_i == 0 || node['kernel']['cs_info']['domain_role'].to_i == 2 }
       notifies :reboot_now, 'reboot[Restart Computer]', :immediately
